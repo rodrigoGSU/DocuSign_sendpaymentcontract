@@ -1,4 +1,4 @@
-# DocuSign_sendymentcontract
+# DocuSign_sendpaymentcontract
 This is the Zoho CRM Deluge code that sends the envelope with pre fill tabs and payment fields too 
 
 You will find the function that you can use in deluge to be abl to:
