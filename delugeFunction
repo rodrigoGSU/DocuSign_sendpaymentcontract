@@ -1,0 +1,223 @@
+//Get contact ID from URL
+contact = zoho.crm.getRecordById("Contacts",contact_id);
+street = contact.getJSON("Mailing_Street");
+zip = contact.getJSON("Mailing_Zip");
+city = contact.getJSON("Mailing_City");
+state = contact.getJSON("Mailing_State");
+country = contact.getJSON("Mailing_Country");
+contact_email = contact.getJSON("Email");
+company = contact.getJSON("Account_Name");
+contact_company = company.getJSON("name");
+contact_name = contact.getJSON("Full_Name");
+contact_address = street + ", " + city + ", " + state + " " + zip;
+//header to make the API call to request access token based on refresh token
+refresh_token_header = Map();
+refresh_token_header.put("Authorization","Basic OGJkNzQ2MGItMjc4OC00Yjk2LWE3MDctOTgzZWUxMjlmYzRmOjE2YTU4NDc0LTU0MGYtNGU2Ny1hZGIxLWU0OTkzOTU3NWY0ZA==");
+refresh_token_params = Map();
+refresh_token_params.put("grant_type","refresh_token");
+refresh_token = "eyJ0eXAiOiJNVCIsImFsZyI6IlJTMjU2Iiwia2lkIjoiNjgxODVmZjEtNGU1MS00Y2U5LWFmMWMtNjg5ODEyMjAzMzE3In0.AQoAAAABAAgABwAA6303aLrZSAgAAGviL_vR2UgCALnFrLMyGBtHs1sTLBQ_";
+refresh_token = refresh_token + "awAVAAEAAAAYAAEAAAAFAAAADQAkAAAAOGJkNzQ2MGItMjc4OC00Yjk2LWE3MDctOTgzZWUxMjlmYzRmIgAkAAAAOGJkNzQ2MGItMjc4OC00Yjk2LWE3MDctOTgzZWUxMjlmYz";
+refresh_token = refresh_token + "RmMAAAAtkBaLrZSDcAmjXgxh8UTUelgoSY3UkS-g.UxE1-jSt9awCvFZ3EEifTqw5Lhh1e0Pr7ICmK-dfuCgPQBomGlDS07P4Rj5e5ekgNUMa8LE588LqBjrVNYBA57AZz1Js5f2CVTZiZTP-Hedci--fWVXh9JldcdH0ak-3ZFc-p12HFHisyRLyuUXVBi2Jyq3RO0NYfe4yV8TGl7Kty7zbI2z5nlVTK_aJRMW-dypXaKvutJWciP2apxyEHN5Nv5RCJ2EjWOY_T5u5NP_FFfGV61-nocQyFiETYwHOU_R-WJB4SUlhRmDR1_2WjQX3IjIZ3XhVFEHLjVpZAkb4Mm5A--U_Rr8OyFlj6bjnXU3TFKXoMyaCLsQTYH4Ang";
+refresh_token_params.put("refresh_token",refresh_token);
+//get access token request
+response = invokeurl
+[
+	url :"https://account-d.docusign.com/oauth/token"
+	type :POST
+	parameters:refresh_token_params
+	headers:refresh_token_header
+];
+access_token_raw = response.getJSON("access_token");
+access_token = "Bearer " + access_token_raw;
+//Header for all API calls 
+API_call_header = Map();
+API_call_header.put("Authorization",access_token);
+API_call_header.put("Content-Type","application/json");
+API_call_header.put("Accept","*/*");
+API_call_header.put("Accept-Encoding","gzip, deflate, br");
+API_call_header.put("Connection","keep-alive");
+create_draft_envelope_params = Map();
+//Email subject and body to be sent on the contract email 
+create_draft_envelope_params.put("emailBlurb","This is a test email body from CRM using the single function");
+create_draft_envelope_params.put("emailSubject","Sending template from Zoho CRM");
+//The template to use on the envelope
+create_draft_envelope_params.put("templateId","4bcb11a6-43ab-4f70-900a-1a921b17e7cf");
+//Create the envelope but as a draft so it can be edited before being sent
+create_draft_envelope_params.put("status","created");
+envelope = invokeurl
+[
+	url :"https://demo.docusign.net/restapi/v2.1/accounts/6053c210-ae7b-47d8-8fcf-bb5d4c55ebb3/envelopes"
+	type :POST
+	parameters:create_draft_envelope_params.toString()
+	headers:API_call_header
+];
+//after creating the enveope as a draft, we update the recipient's name and email address 
+envelopeId = envelope.getJSON("envelopeId");
+//API call body parameters to add the recipient
+recipientsURL = "https://demo.docusign.net/restapi/v2.1/accounts/6053c210-ae7b-47d8-8fcf-bb5d4c55ebb3/envelopes/" + envelopeId + "/recipients";
+body_recipients_request = Map();
+body_recipients_request.put("name",contact_name);
+body_recipients_request.put("email",contact_email);
+body_recipients_request.put("routingOrder","1");
+body_recipients_request.put("status","created");
+body_recipients_request.put("deliveryMethod","email");
+body_recipients_request.put("recipientId","93");
+list = List();
+list.add(body_recipients_request);
+signers = Map();
+signers.put("signers",list);
+recipients = invokeurl
+[
+	url :recipientsURL
+	type :POST
+	parameters:signers.toString()
+	headers:API_call_header
+];
+// Create the prefill fields or tabs 
+tabsbody = Map();
+tabsbody.put("tabLabel","Name");
+tabsbody.put("isPrefilledTab","true");
+tabsbody.put("fontSize","size9");
+tabsbody.put("value",contact_name);
+tabsbody.put("pageNumber","1");
+tabsbody.put("documentId","1");
+tabsbody.put("xPosition","107");
+tabsbody.put("yPosition","356");
+tabsbody.put("trackingId","c353");
+tab2 = Map();
+tab2.put("tabLabel","Email");
+tab2.put("isPrefilledTab","true");
+tab2.put("fontSize","size9");
+tab2.put("value",contact_email);
+tab2.put("pageNumber","1");
+tab2.put("documentId","1");
+tab2.put("xPosition","149");
+tab2.put("yPosition","378");
+tab2.put("trackingId","c379");
+address = Map();
+address.put("tabLabel","Address");
+address.put("isPrefilledTab","true");
+address.put("fontSize","size9");
+address.put("value",contact_address);
+address.put("pageNumber","1");
+address.put("documentId","1");
+address.put("xPosition","102");
+address.put("yPosition","333");
+address.put("trackingId","c391");
+textTabs = List();
+textTabs.add(tabsbody);
+textTabs.add(tab2);
+textTabs.add(address);
+prefillTabs = Map();
+prefillTabs.put("textTabs",textTabs);
+prefill_tabs_array = Map();
+prefill_tabs_array.put("prefillTabs",prefillTabs);
+tabsURL = "https://demo.docusign.net/restapi/v2.1/accounts/6053c210-ae7b-47d8-8fcf-bb5d4c55ebb3/envelopes/" + envelopeId + "/recipients/93/tabs";
+Tabs = invokeurl
+[
+	url :tabsURL
+	type :POST
+	parameters:prefill_tabs_array.toString()
+	headers:API_call_header
+];
+// HERE WE ADD THE PAYMENT TABS
+payment = Map();
+payment.put("tabLabel","Payment");
+payment.put("isPrefilledTab","false");
+payment.put("fontSize","size9");
+payment.put("required","true");
+payment.put("locked","true");
+payment.put("concealValueOnDocument","false");
+payment.put("shared","false");
+payment.put("requireAll","false");
+payment.put("requireInitialOnSharedChange","false");
+amount = 100;
+payment.put("value",amount);
+payment.put("disableAutoSize","false");
+pagen = 2;
+payment.put("pageNumber",pagen);
+payment.put("documentId","1");
+payment.put("recipientId","93");
+payment.put("paymentItemName","Duckling test");
+payment.put("paymentItemCode","12345678");
+payment.put("xPosition","242");
+payment.put("yPosition","718");
+payment.put("trackingId","c669");
+payment.put("trackingid","c669");
+formula = Map();
+formula.put("tabLabel","PaymentReceipt b95a3c2c-40ed-4e80-aa76-21d205e36b66");
+formula.put("isPrefilledTab","false");
+formula.put("fontSize","size9");
+formula.put("concealValueOnDocument","false");
+formula.put("roundDecimalPlaces","0");
+formula.put("formula","([Payment]) * 100");
+formula.put("width","42");
+formula.put("required","true");
+formula.put("hidden","true");
+formula.put("locked","true");
+formula.put("recipientId","93");
+formula.put("pageNumber","1");
+formula.put("documentId","1");
+formula.put("xPosition","0");
+formula.put("yPosition","0");
+formula.put("height","0");
+formula.put("trackingId","c465");
+paymentDetails = Map();
+paymentDetails.put("currencyCode","USD");
+paymentDetails.put("gatewayAccountId","66a8d616-0b6f-4a5f-b010-1170bcc25088");
+paymentDetails.put("gatewayName","Stripe");
+paymentDetails.put("paymentOption","authorize");
+items = Map();
+items.put("amountReference","Payment");
+items.put("name","Duckling test");
+items.put("itemCode","456789");
+itemList = List();
+itemList.add(items);
+paymentDetails.put("lineItems",itemList);
+paymentDetails.put("customMetadataRequired","false");
+paymentDetails.put("customMetadata","");
+formula.put("paymentDetails",paymentDetails);
+formulaTabs = List();
+formulaTabs.add(formula);
+paytabs = List();
+paytabs.add(payment);
+numberTabs = Map();
+numberTabs.put("numberTabs",paytabs);
+numberTabs.put("formulaTabs",formulaTabs);
+payTabs = invokeurl
+[
+	url :tabsURL
+	type :POST
+	parameters:numberTabs.toString()
+	headers:API_call_header
+];
+//Send the envelope
+sendEnvelope = Map();
+sendEnvelope.put("envelopeId",envelopeId);
+sendEnvelope.put("enableResponsiveChoice","false");
+sendEnvelope.put("autoNavigation","true");
+sendEnvelope.put("status","sent");
+sendEnvelope.put("signingLocation","online");
+sendEnvelope.put("allowMarkup","false");
+sendEnvelope.put("envelopeIdStamping","true");
+sendEnvelope.put("is21CFRPart11","false");
+sendEnvelope.put("isSignatureProviderEnvelope","false");
+sendEnvelope.put("hasFormDataChanged","false");
+sendEnvelope.put("allowComments","true");
+sendEnvelope.put("hasComments","false");
+sendEnvelope.put("allowViewHistory","true");
+sendEnvelope.put("signingLocation","online");
+sendEnvelope.put("expireEnabled","true");
+sendEnvelope.put("expireAfter","120");
+sendEnvelope.put("signerCanSignOnMobile","true");
+sendEnvelope.put("envelopeLocation","current_site");
+sentURL = "https://demo.docusign.net/restapi/v2.1/accounts/6053c210-ae7b-47d8-8fcf-bb5d4c55ebb3/envelopes/" + envelopeId;
+sent = invokeurl
+[
+	url :sentURL
+	type :PUT
+	parameters:sendEnvelope.toString()
+	headers:API_call_header
+];
+myEnvelopeId = sent.getJSON("envelopeId");
+return "Your contract has been sent to " + contact_email + ". Envelope ID: " + myEnvelopeId;
