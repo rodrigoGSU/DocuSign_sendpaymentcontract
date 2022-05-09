@@ -1,0 +1,688 @@
+//Get Deal , contact and account from Deal ID on URL when button is clicked
+deal = zoho.crm.getRecordById("Deals",deal_id);
+contact_container = deal.getJSON("Contact_Name");
+contact_id = contact_container.getJSON("id");
+contact = zoho.crm.getRecordById("Contacts",contact_id);
+account_container = deal.getJSON("Account_Name");
+account_id = account_container.getJSON("id");
+account = zoho.crm.getRecordById("Accounts",account_id);
+deal_name = deal.getJSON("Deal_Name");
+//Get Signers from the selected Deal, main signer is required, other recipients are optional
+main_signer_name = ifNull(deal.getJSON("Signer_s_Name")," ");
+main_signer_email = ifNull(deal.getJSON("Signer_s_Email"),"noEmail");
+cc1_name = ifNull(deal.getJSON("Recipient_s_Name")," ");
+cc1_email = ifNull(deal.getJSON("Recipient_s_Email"),"noEmail");
+cc2_name = ifNull(deal.getJSON("Additional_Recipient_s_Name")," ");
+cc2_email = ifNull(deal.getJSON("Additional_Recipient_s_Email"),"noEmail");
+/*Get Contact details to push to the agreement  from the account and contact above 
+we will later validate if phone number for company and company address are empty, so we will leave them empty for now*/
+company_name = account_container.getJSON("name");
+street = account.getJSON("Billing_Street");
+zip = account.getJSON("Billing_Code");
+city = account.getJSON("Billing_City");
+state = account.getJSON("Billing_States_NEW");
+// Not found on the prod account 
+country = account.getJSON("Billing_Country1");
+contact_email = contact.getJSON("Email");
+company_phone_validator = account.getJSON("Phone");
+company_phone = "";
+contact_address = "";
+contact_name = contact.getJSON("Full_Name");
+phone_validator = contact.getJSON("Phone");
+cellphone = "";
+deal_name = deal.getJSON("Deal_Name");
+name_in_contract = contact_name;
+//Assign the Envelope details
+docusign_account_id = "0864e9c4-f6b8-4ee8-b92f-e4433f06c2ff";
+base_url = "https://na4.docusign.net/restapi/v2.1/accounts/" + docusign_account_id;
+email_subject = "GSU Service Agreement";
+email_body = "Hi! Find the Service Agreement in the link above, once you are done signing, click on 'Finish' to enter the payment details on the window that will pop up";
+template_id = "a186a8b5-d8f8-4061-86d6-6a6afcd292c0";
+//Here we define the envelope details: Template ID to be used, base URL to make the requests and emails subject and body, also the account ID which will be different if in prod
+monthly_fee_validator = deal.getJSON("Monthly_Fee1");
+monthly_payment = "";
+discount_reason = deal.getJSON("Discount_Reason");
+other_monthly_fee = deal.getJSON("Other_Monthly_Fee");
+// this one does not show up in the JSON either 
+initial_payment = deal.getJSON("StartUp_Fee");
+discount = deal.getJSON("StartUp_Fee_Discount1");
+discount_amount = "$" + discount;
+discount_reason = deal.getJSON("Discount_Reason");
+payment_gateway = deal.getJSON("Payment_Gateway");
+//Additional terms fields to push , we will later use validation to see if they are even selected
+discount_term = "";
+podcast_promotion = deal.getJSON("Podcast_Promotions");
+podcast_name = deal.getJSON("Podcast_Name");
+twomorediscount = "";
+discountpercent = deal.getJSON("Start_Up_Fee_Discount");
+number_of_agreements = deal.getJSON("Number_of_Agreements");
+enterprise_discount = deal.getJSON("Enterprise_Discounts");
+enterprise_monthly_discount = deal.getJSON("Monthly_Fee_Discount");
+//Validations to do before creating the draft
+//Ensure there is a contact associated with the Deal, if not, then ask the user to enter it 
+if(contact_container == null)
+{
+	return "Please associate a contact in 'Contact Name' field";
+}
+//Ensure there is an account associated to have at least the account name
+if(account_container == null)
+{
+	return "Please associate an account in 'Account Name' field";
+}
+// We validate the company phone number, if empty, then we use the space value to let the customer fill that field in later, and if there is a number, we format it
+if(company_phone_validator == null)
+{
+	company_phone = " ";
+}
+else
+{
+	company_phone = company_phone_validator.toString().getAlphaNumeric().removeAllAlpha();
+	if(company_phone.length() == 10)
+	{
+		newPhone = "(" + company_phone.subString(0,3) + ")";
+		newPhone = newPhone + " " + company_phone.subString(3,6) + "-";
+		newPhone = newPhone + company_phone.subString(6,10);
+		company_phone = newPhone;
+	}
+}
+//Validate if the address in the contact is empty
+if(street == null && zip == null && city == null && state == null && country == null)
+{
+	contact_address = " ";
+}
+else
+{
+	contact_address = street + ", " + city + ", " + state + " " + zip;
+}
+//Check for phone number in contact, and format it as US phone number if not null
+if(phone_validator == null)
+{
+	cellphone = " ";
+}
+else
+{
+	cellphone = phone_validator.toString().getAlphaNumeric().removeAllAlpha();
+	if(cellphone.length() == 10)
+	{
+		formatPhone = "(" + cellphone.subString(0,3) + ")";
+		formatPhone = formatPhone + " " + cellphone.subString(3,6) + "-";
+		formatPhone = formatPhone + cellphone.subString(6,10);
+		cellphone = formatPhone;
+	}
+}
+// Validate if the monthly fee is one of the options from the drop down or manually entered
+if(monthly_fee_validator == "Other")
+{
+	monthly_payment = "$" + other_monthly_fee;
+}
+else
+{
+	monthly_payment = "$" + monthly_fee_validator;
+}
+//Start up fee must not be emtpy, so we check it here
+if(initial_payment == null)
+{
+	return "Please enter a Startup Fee";
+}
+// if no discount was added, we put it as 0 to avoid getting errors in the formula
+if(discount == null)
+{
+	discount = 0;
+}
+//validate discount Percent and if null, then skip it, and if not null then convert to number, same for start up fee 
+if(discountpercent != null)
+{
+	discountpercent_number = discountpercent.toNumber();
+	startup_fee = initial_payment.toNumber();
+}
+//if there is a discount, we have to give the right output in the additional terms 
+if(discount_reason == "Podcasts")
+{
+	if(podcast_name == null)
+	{
+		return "Please enter a Podcast Name";
+	}
+	else
+	{
+		if(podcast_promotion == "Promotion 1")
+		{
+			discount_term = podcast_name + " Podcast $" + discount + " promotion shall be applied to the $1,750 Startup Fee";
+		}
+		else if(podcast_promotion == "Promotion 2")
+		{
+			discount_term = podcast_name + " Podcast $" + discount + " promotion shall be applied to the $1,750 Startup Fee.";
+		}
+		else
+		{
+			return "Please enter a Podcast Promotion value";
+		}
+	}
+}
+else if(discount_reason == "Affiliate program")
+{
+	discount_term = "$" + discount + " promotion shall be applied to the $1,750 Startup Fee.";
+}
+else if(discount_reason == "Two or more agreements on the same day")
+{
+	if(discount != 0 && discountpercent == null)
+	{
+		discount_term = "A $" + discount + " promotion shall be applied to the $1,750 Startup fee if " + number_of_agreements + " agreements are signed the same day.";
+	}
+	else if(discount == 0 && discountpercent != null)
+	{
+		discount = startup_fee * discountpercent_number / 100;
+		discount_term = "A " + discountpercent + "% promotion shall be applied to the $1,750 Startup fee if " + number_of_agreements + " agreements are signed the same day.";
+	}
+	else
+	{
+		return "Please enter either % Discount or $ Discount for Start up fee (only one)" + " - currently your discount is:" + discount + " and your discount percent is: " + discountpercent;
+	}
+}
+else if(discount_reason == "Fast-Track")
+{
+	discount_term = "$" + discount + " promotion shall be applied to the $1,750 Startup fee.";
+}
+else if(discount_reason == "Mini-Enterprise")
+{
+	discount_term = "$" + discount + " promotion shall be applied to the $1,750 Startup fee. $50 to be deducted from each deal per month. The $50 discount will apply as long as the client has 5 staffed up deals.";
+}
+else if(discount_reason == "Enterprise")
+{
+	if(enterprise_discount == "10th deal (Startup Fee is waived)")
+	{
+		discount_term = "The startup fee shall be waived because the client has reached the Enterprise level. $100 to be deducted from each deal per month. The $100 discount will apply as long as the client has 10 staffed up deals.";
+	}
+	else if(enterprise_discount == "Deals 10 and beyond")
+	{
+		discount_term = "$" + discount + " promotion shall be applied to the 1,750 Startup fee. $" + enterprise_monthly_discount + " to be deducted from each deal per month. The $" + enterprise_monthly_discount + " discount will apply as long as the client has 10 staffed up deals.";
+	}
+}
+else if(discount_reason == "EVENTS" || discount_reason == "HTM" || discount_reason == "HOLIDAYS" || discount_reason == "SPECIAL DATES")
+{
+	discount_term = "$" + discount + " promotion shall be applied to the 1,750 Startup fee.";
+}
+//check which payment gateway is selected to be used 
+gateway_AccountId = "";
+gatewayName = "";
+if(payment_gateway == null)
+{
+	return "Please select a Payment way";
+}
+else if(payment_gateway == "Stripe")
+{
+	gateway_AccountId = "c20d00fc-8680-426d-906f-2d2b92b9ed2b";
+	gatewayName = "Stripe_2453";
+}
+else if(payment_gateway == "Braintree")
+{
+	gateway_AccountId = "863308bf-7385-4d8b-842c-2282bbc912a6";
+	gatewayName = "Braintree_6669";
+}
+if(main_signer_name == " " || main_signer_email == "noEmail")
+{
+	return "Please enter a Signer";
+}
+//API request to get access token from refresh token
+access_token_header = Map();
+access_token_header.put("Authorization","Basic YmJjMzUyODgtOTk3OC00MjYxLTk5ZjMtYWY4Nzk5YjE2YTk4OjQ0ZGVlMGVkLTFhOTktNGQ0YS1hZDA3LTExMjc3OWM0ZjQwNA==");
+access_token_params = Map();
+access_token_params.put("grant_type","refresh_token");
+refresh_token = "eyJ0eXAiOiJNVCIsImFsZyI6IlJTMjU2Iiwia2lkIjoiOGFlYzFjZjQtYmE4NS00MDM5LWE1MmItYzVhODAxMjA3N2EyIn0.AQoAAAABAAgABwCAHxu8Dy3aSAgAgJ9_tKJE2kgCAPVylFmk2blGhViy4bilEwAVAAcAAAAYAAEAAAAFAAAADQAkAAAAYmJjMzUyODgtOTk3OC00MjYxLTk5ZjMtYWY4Nzk5YjE2YTk4IgAkAAAAYmJjMzUyODgtOTk3OC00MjYxLTk5ZjMtYWY4Nzk5YjE2YTk4MACAPXPxDi3aSDcAJC7r7-PZM06snh0kIwNcdQ.aAvZE_Cehqo8UXS80c-1aOE-EhEzz5Y3QytEiuPGHjxx0jwslJM9Q-wwLJteRdSpRU7jPHdGmWAC4DdeF1GcGPRIU_U";
+refresh_token = refresh_token + "A43UIjR1cjwzZ0S-nB2cteCsMAw9naw6aa2dexNAaUeEyGS0Z59xr43LuHPzhAz4PnwzA4BX6qGAyfGmDxBmj1ne1UcdtpCi0OHvcUB4fBHTAJbOFYfViHDm833gBsYtJp8KBynZe6pFz7Okfyf2hoVIoNNinP0LVt7lRcOetzDy21VJ61vfXA-Q1NgXDyPABnjIbmun8QuCgamqBxcthKrU8d241xcUMx-SehFxfxaZf8rlDTdkHXg3BPQ";
+access_token_params.put("refresh_token",refresh_token);
+//access token request
+get_access_token_request = invokeurl
+[
+	url :"https://account.docusign.com/oauth/token"
+	type :POST
+	parameters:access_token_params
+	headers:access_token_header
+];
+//access token
+access = get_access_token_request.getJSON("access_token");
+access_token = "Bearer " + access;
+//Header for all API calls 
+create_envelope_url = base_url + "/envelopes";
+API_call_header = Map();
+API_call_header.put("Authorization",access_token);
+API_call_header.put("Content-Type","application/json");
+API_call_header.put("Accept","*/*");
+API_call_header.put("Accept-Encoding","gzip, deflate, br");
+API_call_header.put("Connection","keep-alive");
+create_draft_envelope_params = Map();
+//Email subject and body to be sent on the contract email 
+create_draft_envelope_params.put("emailBlurb",email_body);
+create_draft_envelope_params.put("emailSubject",email_subject);
+//The template to use on the envelope
+create_draft_envelope_params.put("templateId",template_id);
+//Create the envelope as a draft so it can be edited before being sent
+create_draft_envelope_params.put("status","created");
+//create recipients and define them 
+main_signer = Map();
+main_signer.put("name",main_signer_name);
+main_signer.put("email",main_signer_email);
+main_signer.put("routingOrder","1");
+main_signer.put("status","created");
+main_signer.put("deliveryMethod","email");
+main_signer.put("recipientId","93");
+cc_recipient = Map();
+cc_recipient.put("name",cc1_name);
+cc_recipient.put("email",cc1_email);
+cc_recipient.put("routingOrder","2");
+cc_recipient.put("status","created");
+cc_recipient.put("deliveryMethod","email");
+cc_recipient.put("recipientId","3");
+second_cc_recipient = Map();
+second_cc_recipient.put("name",cc2_name);
+second_cc_recipient.put("email",cc2_email);
+second_cc_recipient.put("routingOrder","3");
+second_cc_recipient.put("status","created");
+second_cc_recipient.put("deliveryMethod","email");
+second_cc_recipient.put("recipientId","4");
+list_of_signers = List();
+list_of_cc_recipients = List();
+// Create the prefill fields or tabs 
+contact_name_field = Map();
+contact_name_field.put("tabLabel","Name");
+contact_name_field.put("isPrefilledTab",true);
+contact_name_field.put("required",true);
+contact_name_field.put("locked",false);
+contact_name_field.put("fontSize","size9");
+contact_name_field.put("font","Arial");
+contact_name_field.put("value",name_in_contract);
+contact_name_field.put("pageNumber",1);
+contact_name_field.put("documentId","1");
+contact_name_field.put("xPosition",105);
+contact_name_field.put("yPosition",344);
+contact_name_field.put("trackingId","c353");
+contact_email_field = Map();
+contact_email_field.put("tabLabel","Email");
+contact_email_field.put("isPrefilledTab",true);
+contact_email_field.put("required",true);
+contact_email_field.put("locked",false);
+contact_email_field.put("fontSize","size9");
+contact_email_field.put("font","Arial");
+contact_email_field.put("value",contact_email);
+contact_email_field.put("pageNumber",1);
+contact_email_field.put("documentId","1");
+contact_email_field.put("xPosition",150);
+contact_email_field.put("yPosition",367);
+contact_email_field.put("trackingId","c381");
+address = Map();
+address.put("tabLabel","Address");
+address.put("isPrefilledTab",true);
+address.put("required",true);
+address.put("locked",false);
+address.put("fontSize","size9");
+address.put("font","Arial");
+address.put("value",contact_address);
+address.put("pageNumber",1);
+address.put("documentId","1");
+address.put("xPosition",102);
+address.put("yPosition",319);
+address.put("trackingId","c391");
+company_name_field = Map();
+company_name_field.put("tabLabel","companyName");
+company_name_field.put("isPrefilledTab",true);
+company_name_field.put("required",true);
+company_name_field.put("locked",false);
+company_name_field.put("fontSize","size9");
+company_name_field.put("font","Arial");
+company_name_field.put("value",company_name);
+company_name_field.put("pageNumber",1);
+company_name_field.put("documentId","1");
+company_name_field.put("xPosition",84);
+company_name_field.put("yPosition",297);
+company_name_field.put("trackingId","c390");
+mobile_number = Map();
+mobile_number.put("tabLabel","cellPhone");
+mobile_number.put("isPrefilledTab",true);
+mobile_number.put("required",true);
+mobile_number.put("locked",false);
+mobile_number.put("fontSize","size9");
+mobile_number.put("font","Arial");
+mobile_number.put("value",cellphone);
+mobile_number.put("pageNumber",1);
+mobile_number.put("documentId","1");
+mobile_number.put("xPosition",392);
+mobile_number.put("yPosition",344);
+mobile_number.put("trackingId","c321");
+company_phone_field = Map();
+company_phone_field.put("tabLabel","companyPhone");
+company_phone_field.put("isPrefilledTab",true);
+company_phone_field.put("required",true);
+company_phone_field.put("locked",false);
+company_phone_field.put("fontSize","size9");
+company_phone_field.put("font","Arial");
+company_phone_field.put("value",company_phone);
+company_phone_field.put("pageNumber",1);
+company_phone_field.put("documentId","1");
+company_phone_field.put("xPosition",397);
+company_phone_field.put("yPosition",297);
+company_phone_field.put("trackingId","c331");
+monthly_fee_field = Map();
+monthly_fee_field.put("tabLabel","monthlyFee");
+monthly_fee_field.put("isPrefilledTab",true);
+monthly_fee_field.put("required",true);
+monthly_fee_field.put("bold",true);
+monthly_fee_field.put("locked",false);
+monthly_fee_field.put("fontSize","size14");
+monthly_fee_field.put("font","Arial");
+monthly_fee_field.put("value",monthly_payment);
+monthly_fee_field.put("pageNumber",2);
+monthly_fee_field.put("documentId","1");
+monthly_fee_field.put("xPosition",175);
+monthly_fee_field.put("yPosition",273);
+monthly_fee_field.put("trackingId","c337");
+//Additional terms fields
+discountReason = Map();
+discountReason.put("tabLabel","discountReason-field");
+discountReason.put("isPrefilledTab",true);
+discountReason.put("required",true);
+discountReason.put("locked",false);
+discountReason.put("fontSize","size9");
+discountReason.put("font","Arial");
+discountReason.put("value",discount_term);
+discountReason.put("pageNumber",3);
+discountReason.put("documentId","1");
+discountReason.put("xPosition",41);
+discountReason.put("yPosition",270);
+discountReason.put("trackingId","c346");
+discount_amount_field = Map();
+discount_amount_field.put("tabLabel","discountReason-field");
+discount_amount_field.put("isPrefilledTab",true);
+discount_amount_field.put("required",true);
+discount_amount_field.put("bold",true);
+discount_amount_field.put("locked",false);
+discount_amount_field.put("fontSize","size11");
+discount_amount_field.put("value","Net Start-Up Fee to Pay:");
+discount_amount_field.put("pageNumber",3);
+discount_amount_field.put("documentId","1");
+discount_amount_field.put("xPosition",41);
+discount_amount_field.put("yPosition",291);
+discount_amount_field.put("trackingId","c456");
+print_name_field = Map();
+print_name_field.put("tabLabel","Print Name");
+print_name_field.put("isPrefilledTab",false);
+print_name_field.put("required",true);
+print_name_field.put("locked",false);
+print_name_field.put("fontSize","size9");
+print_name_field.put("font","Arial");
+print_name_field.put("name","");
+print_name_field.put("value","");
+print_name_field.put("disableAutoSize",false);
+print_name_field.put("maxLength",4000);
+print_name_field.put("width",84);
+print_name_field.put("height",22);
+print_name_field.put("recipientId",93);
+print_name_field.put("pageNumber",3);
+print_name_field.put("documentId","1");
+print_name_field.put("xPosition",30);
+print_name_field.put("yPosition",406);
+print_name_field.put("trackingId","c741");
+prefillTabsList = List();
+prefillTabsList.add(contact_name_field);
+prefillTabsList.add(contact_email_field);
+prefillTabsList.add(company_name_field);
+prefillTabsList.add(mobile_number);
+prefillTabsList.add(monthly_fee_field);
+prefillTabsList.add(discount_amount_field);
+textFields = List();
+textFields.add(print_name_field);
+//Here we define the signature tabs and ad them to an array as a JSON
+signatureTabs = Map();
+signatureTabs.put("tabLabel","Signature 3c8ec704-153d-4498-ac33-f7d0aa2e1dc5");
+signatureTabs.put("isPrefilledTab",false);
+signatureTabs.put("recipientId","93");
+signatureTabs.put("pageNumber",3);
+signatureTabs.put("documentId","1");
+signatureTabs.put("xPosition",266);
+signatureTabs.put("yPosition",392);
+signatureTabs.put("scaleValue",1.0384615384615385);
+signatureTabs.put("optional",false);
+signatureTabs.put("trackingId","c427");
+initialTabs = Map();
+initialTabs.put("tabLabel","Initial dfa8557c-8bca-4afb-8e31-73768060ecb0");
+initialTabs.put("isPrefilledTab","false");
+initialTabs.put("recipientId","93");
+initialTabs.put("pageNumber",3);
+initialTabs.put("documentId","1");
+initialTabs.put("xPosition",530);
+initialTabs.put("yPosition",138);
+initialTabs.put("scaleValue",1);
+initialTabs.put("optional","false");
+initialTabs.put("trackingId","c440");
+dateTabs = Map();
+dateTabs.put("tabLabel","Date Signed");
+dateTabs.put("fontSize","size9");
+dateTabs.put("recipientId","93");
+dateTabs.put("pageNumber",3);
+dateTabs.put("documentId","1");
+dateTabs.put("xPosition",461);
+dateTabs.put("yPosition",407);
+dateTabs.put("width",0);
+dateTabs.put("height",0);
+dateTabs.put("trackingId","c440");
+signatureTabsList = List();
+signatureTabsList.add(signatureTabs);
+initialTabsList = List();
+initialTabsList.add(initialTabs);
+dateTabsList = List();
+dateTabsList.add(dateTabs);
+signHereTabs = Map();
+signHereTabs.put("signHereTabs",signatureTabsList);
+signHereTabs.put("initialHereTabs",initialTabsList);
+signHereTabs.put("dateSignedTabs",dateTabsList);
+//ADD THE PAYMENT TABS
+amount = initial_payment - discount;
+amount = amount * 1.035;
+page_number_location = 3;
+payment = Map();
+payment.put("tabLabel","AMOUNT DUE");
+payment.put("isPrefilledTab",false);
+payment.put("fontSize","size11");
+payment.put("fontColor","black");
+payment.put("bold",true);
+payment.put("locked",true);
+payment.put("required",true);
+payment.put("concealValueOnDocument",false);
+payment.put("shared",false);
+payment.put("requireAll",false);
+payment.put("requireInitialOnSharedChange",false);
+payment.put("value",amount);
+payment.put("disableAutoSize",false);
+payment.put("width",50);
+payment.put("height",19);
+payment.put("pageNumber",page_number_location);
+payment.put("documentId","1");
+payment.put("recipientId",93);
+payment.put("paymentItemName","Start-Up Fee + 3.5% Credit card fee");
+payment.put("paymentItemCode","12345678");
+payment.put("xPosition",221);
+payment.put("yPosition",291);
+payment.put("trackingId","c669");
+payment.put("trackingid","c669");
+formula = Map();
+formula.put("tabLabel","Net StartUp Fee");
+formula.put("isPrefilledTab",false);
+formula.put("fontSize","size9");
+formula.put("bold",false);
+formula.put("concealValueOnDocument",false);
+formula.put("roundDecimalPlaces",0);
+formula.put("formula","([AMOUNT DUE]) * 100");
+formula.put("width",42);
+formula.put("required",true);
+formula.put("hidden",true);
+formula.put("locked",true);
+formula.put("pageNumber","2");
+paymentDetails = Map();
+paymentDetails.put("currencyCode","USD");
+ccmethod = "CreditCard";
+AndroidPay = "AndroidPay";
+ApplePay = "ApplePay";
+paymentMethods = List();
+paymentMethods.add(ccmethod);
+paymentMethods.add(AndroidPay);
+paymentMethods.add(ApplePay);
+paymentDetails.put("allowedPaymentMethods",paymentMethods);
+paymentDetails.put("gatewayAccountId",gateway_AccountId);
+paymentDetails.put("gatewayName",gatewayName);
+paymentDetails.put("paymentOption","authorize");
+item1 = Map();
+item1.put("amountReference","AMOUNT DUE");
+item1.put("name","Start-Up Fee + 3.5% Credit card fee");
+item1.put("itemCode",deal_name);
+item1.put("description",contact_name);
+itemList = List();
+itemList.add(item1);
+paymentDetails.put("lineItems",itemList);
+paymentDetails.put("customMetadataRequired","false");
+paymentDetails.put("customMetadata","");
+formula.put("paymentDetails",paymentDetails);
+formula.put("documentId","1");
+formula.put("recipientId","93");
+formula.put("xPosition","0");
+formula.put("yPosition","0");
+formula.put("height","0");
+formula.put("trackingId","c465");
+formulaTabs = List();
+formulaTabs.add(formula);
+paytabs = List();
+paytabs.add(payment);
+numberTabs = Map();
+numberTabs.put("numberTabs",paytabs);
+numberTabs.put("formulaTabs",formulaTabs);
+/*Here we add conditionals for the tabs, 
+This is where we define if the tabs will be */
+if(cc1_email == "noEmail" && cc2_email == "noEmail")
+{
+	//only main signer is set
+	list_of_signers.add(main_signer);
+}
+else if(cc1_email != "noEmail" && cc2_email == "noEmail")
+{
+	//Signer and only 1 cc are set
+	list_of_signers.add(main_signer);
+	list_of_cc_recipients.add(cc_recipient);
+}
+else if(cc1_email != "noEmail" && cc2_email != "noEmail")
+{
+	//all signers are set
+	list_of_signers.add(main_signer);
+	list_of_cc_recipients.add(cc_recipient);
+	list_of_cc_recipients.add(second_cc_recipient);
+}
+else
+{
+	return "no criteria set yet";
+}
+recipients = Map();
+recipients.put("signers",list_of_signers);
+recipients.put("carbonCopies",list_of_cc_recipients);
+//Condiionals to validate  fields to push to contracts
+//1. Validate if there is discount , if yes, add it to the contract, otherwise, don't add itat all 
+if(discount_reason != null)
+{
+	prefillTabsList.add(discountReason);
+}
+//2. Company address, if no address is set, then a text field for client to fill will be added, otherwise, it will be a prefilled field 
+if(street == null && zip == null && city == null && state == null && country == null)
+{
+	address.put("maxLength",4000);
+	address.put("width",84);
+	address.put("height",22);
+	textFields.add(address);
+}
+else
+{
+	prefillTabsList.add(address);
+}
+//3. Company Phone, if no, text field for client to fill, if yes, then add it to the contact with proper format
+if(company_phone_validator == null)
+{
+	company_phone_field.put("maxLength",4000);
+	company_phone_field.put("width",84);
+	company_phone_field.put("height",22);
+	textFields.add(company_phone_field);
+}
+else
+{
+	prefillTabsList.add(company_phone_field);
+}
+//THIS IS WHERE WE ADD THE TEXT FIELDS TAB TO THE JSON TO BE PASSED TO THE API CALL 
+prefillTabs = Map();
+prefillTabs.put("textTabs",prefillTabsList);
+prefill_tabs_array = Map();
+prefill_tabs_array.put("prefillTabs",prefillTabs);
+textTab = Map();
+textTab.put("textTabs",textFields);
+//API Requests
+/*1. We create the envelope which will contain the template ID, and the email body and subject, we taken them from variables inserted in the header in create_draft_envelope_params
+The envelope gets created as draft so that we can then update it by using other API calls to insert recipients (based on the number of recipients entered in the Deal), and the prefill tabs
+we then do multiple API calls to insert the fields and the recipients, and a final one to insert the payment tabs which will integrate the payment gateway 
+*/
+create_envelope_draft_request = invokeurl
+[
+	url :create_envelope_url
+	type :POST
+	parameters:create_draft_envelope_params.toString()
+	headers:API_call_header
+];
+/*2. Add Recipients, here we add the main signer which is required, and if there are any carbon copies, then we add them as well but that will be added as a JSON and then passed as a parameter
+We also need to know that if the signer will not be the same as the main signer, 
+we still can ask the main signer to forward the envelope to the person who will sign from the envelope options on the email*/
+envelopeId = create_envelope_draft_request.getJSON("envelopeId");
+recipientsURL = create_envelope_url + "/" + envelopeId + "/recipients";
+add_recipients_request = invokeurl
+[
+	url :recipientsURL
+	type :POST
+	parameters:recipients.toString()
+	headers:API_call_header
+];
+/*3. We add the tabs. Here we add the prefill tabs as a JSON (prefilled meaning they are not going to be filled by the client)
+If there is something needed to be filled by the client for example if the company phone and company address are missing, 
+then we add them as a text fields to be filled by them, on the next API call 
+*/
+tabsURL = recipientsURL + "/93/tabs";
+add_prefill_tabs_request = invokeurl
+[
+	url :tabsURL
+	type :POST
+	parameters:prefill_tabs_array.toString()
+	headers:API_call_header
+];
+/* 4. Here we add the fields for the client to fill, if there is no company phone in the account or company address,
+The client needs to fill them out, also the print name has to be filled by them so we add all them here
+We do it in a separate call because we need to separate prefill field from text fields as they are of different type in DocuSign */
+textTabsURL = recipientsURL + "/93/tabs";
+add_tabs_request = invokeurl
+[
+	url :textTabsURL
+	type :POST
+	parameters:textTab.toString()
+	headers:API_call_header
+];
+//5. Here we add the signature tabs , and the initial tabs
+signHereTabs_request = invokeurl
+[
+	url :tabsURL
+	type :POST
+	parameters:signHereTabs.toString()
+	headers:API_call_header
+];
+/*6. We add the payment tabs
+This also means we will integrate the payment gateway (which we didn't code as is as built-in functionality in DocuSign)
+So we only add it here and do the API call to updat the envelope with these tabs 
+*/
+add_paymentTabs_request = invokeurl
+[
+	url :tabsURL
+	type :POST
+	parameters:numberTabs.toString()
+	headers:API_call_header
+];
+//Here we simply add the URL to the pop up window for the sales user to see the draft in a pop up separate window before it gets sent 
+popUp_Url = "https://app.docusign.com/prepare/" + envelopeId + "/add-fields";
+popUp = openUrl(popUp_Url,"popup window","height=750,width=1180");
+return popUp;
